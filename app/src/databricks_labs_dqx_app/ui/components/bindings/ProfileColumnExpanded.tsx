@@ -1,3 +1,4 @@
+
 import { useTranslation } from "react-i18next";
 import { fmtStat, typeGroup, type StatTypeGroup } from "@/lib/profile-format";
 
@@ -7,44 +8,106 @@ interface Props {
 }
 
 /**
- * DQX's profiler summary_json keys (see DQProfiler._profile / _get_df_summary_as_dict):
- *   count, count_null, count_non_null, count_distinct, empty_count,
- *   mean, stddev, min, max, "25%", "50%", "75%".
- * (DQX doesn't compute top-N value frequencies, so there is no "most common
- * values" panel.)
+ * DQX profiler summary_json:
+ * count, count_null, count_non_null, count_distinct,
+ * empty_count, mean, stddev, min, max,
+ * "25%", "50%", "75%".
+ *
+ * Extensao Selbetti:
+ * top_values: [{ valor: string | null, quantidade: number }]
  */
+
+interface TopValue {
+  valor: string | null;
+  quantidade: number;
+}
 
 const PERCENTILE_KEYS = new Set(["25%", "50%", "75%"]);
 
-/** Keys rendered as their own indicator elsewhere in the collapsed row — don't repeat. */
 const HIDDEN_KEYS = new Set([
-  "count_non_null", // completeness bar
-  "count_distinct", // distinct bar
-  "count", // implied by rows profiled
+  "count_non_null",
+  "count_distinct",
+  "count",
+  "top_values",
 ]);
 
-function orderKeys(group: StatTypeGroup, present: string[]): string[] {
-  // DQX emits min/max for strings (lexicographic from Spark summary) and for
-  // timestamps/dates after the min/max builders — prefer those over length
-  // keys that the profiler does not currently produce.
+function orderKeys(
+  group: StatTypeGroup,
+  present: string[],
+): string[] {
   const base: string[] =
     group === "numeric"
       ? ["count_null", "empty_count", "min", "max", "mean", "stddev"]
       : group === "string"
-        ? ["count_null", "empty_count", "min", "max", "min_length", "max_length", "avg_length"]
+        ? [
+            "count_null",
+            "empty_count",
+            "min",
+            "max",
+            "min_length",
+            "max_length",
+            "avg_length",
+          ]
         : group === "timestamp"
           ? ["count_null", "empty_count", "min", "max"]
           : ["count_null", "empty_count", "min", "max"];
-  const ordered = base.filter((k) => present.includes(k));
-  const extras = present.filter((k) => !base.includes(k) && !PERCENTILE_KEYS.has(k)).sort();
+
+  const ordered = base.filter((key) => present.includes(key));
+
+  const extras = present
+    .filter(
+      (key) =>
+        !base.includes(key) &&
+        !PERCENTILE_KEYS.has(key),
+    )
+    .sort();
+
   return [...ordered, ...extras];
 }
 
-export function ProfileColumnExpanded({ stats, sparkType }: Props) {
+function isTopValue(item: unknown): item is TopValue {
+  if (
+    typeof item !== "object" ||
+    item === null ||
+    !("valor" in item) ||
+    !("quantidade" in item)
+  ) {
+    return false;
+  }
+
+  return (
+    (typeof item.valor === "string" || item.valor === null) &&
+    typeof item.quantidade === "number" &&
+    Number.isFinite(item.quantidade) &&
+    item.quantidade >= 0
+  );
+}
+
+export function ProfileColumnExpanded({
+  stats,
+  sparkType,
+}: Props) {
   const { t } = useTranslation();
+
   const group = typeGroup(sparkType);
-  const presentKeys = Object.keys(stats).filter((k) => !HIDDEN_KEYS.has(k) && stats[k] != null);
+
+  const presentKeys = Object.keys(stats).filter(
+    (key) =>
+      !HIDDEN_KEYS.has(key) &&
+      stats[key] != null,
+  );
+
   const ordered = orderKeys(group, presentKeys);
+
+  // Valores mais frequentes retornados pelo Task Runner.
+  const topValues: TopValue[] = Array.isArray(stats.top_values)
+    ? stats.top_values.filter(isTopValue).slice(0, 5)
+    : [];
+
+  const maxFrequency = Math.max(
+    1,
+    ...topValues.map((item) => item.quantidade),
+  );
 
   const LABELS: Record<string, string> = {
     count_null: t("monitoredTables.profileStatCountNull"),
@@ -64,33 +127,102 @@ export function ProfileColumnExpanded({ stats, sparkType }: Props) {
   };
 
   const showPercentiles =
-    group === "numeric" && Array.from(PERCENTILE_KEYS).some((k) => stats[k] != null);
+    group === "numeric" &&
+    Array.from(PERCENTILE_KEYS).some(
+      (key) => stats[key] != null,
+    );
 
   return (
     <div className="px-4 pt-3 pb-4 pl-12">
+      {/* Estatisticas originais do DQX */}
       <h5 className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-2">
         {t("monitoredTables.profileStatisticsHeading")}
       </h5>
+
       <div className="grid grid-cols-4 gap-x-5 gap-y-2">
         {ordered.map((key) => (
           <div key={key}>
             <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
               {LABELS[key] ?? key}
             </div>
-            <div className="font-mono text-xs break-all">{fmtStat(stats[key])}</div>
+
+            <div className="font-mono text-xs break-all">
+              {fmtStat(stats[key])}
+            </div>
           </div>
         ))}
+
         {showPercentiles && (
           <div>
             <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
               {t("monitoredTables.profileStatPercentiles")}
             </div>
+
             <div className="font-mono text-xs">
-              {fmtStat(stats["25%"])} / {fmtStat(stats["50%"])} / {fmtStat(stats["75%"])}
+              {fmtStat(stats["25%"])} /{" "}
+              {fmtStat(stats["50%"])} /{" "}
+              {fmtStat(stats["75%"])}
             </div>
           </div>
         )}
       </div>
+
+      {/* Extensao Selbetti: valores mais frequentes */}
+      {topValues.length > 0 && (
+        <div className="mt-5 border-t pt-4">
+          <div className="flex items-center justify-between mb-3">
+            <h5 className="text-xs font-semibold">
+              Valores mais frequentes
+            </h5>
+
+            <span className="text-[10px] text-muted-foreground">
+              Top {topValues.length}
+            </span>
+          </div>
+
+          <div className="space-y-3">
+            {topValues.map((item, index) => {
+              const percentage =
+                (item.quantidade / maxFrequency) * 100;
+
+              return (
+                <div
+                  key={`${item.valor ?? "null"}-${index}`}
+                  className="space-y-1"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span
+                      className="text-xs font-medium truncate"
+                      title={item.valor ?? "Nulo"}
+                    >
+                      {item.valor ?? "Nulo"}
+                    </span>
+
+                    <span className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                      {item.quantidade.toLocaleString("pt-BR")}
+                    </span>
+                  </div>
+
+                  <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all duration-300"
+                      style={{
+                        width: `${percentage}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <p className="mt-3 text-[10px] text-muted-foreground">
+            Frequencias calculadas sobre os registros
+            utilizados no perfilamento. Barras relativas
+            ao valor mais frequente.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

@@ -452,6 +452,33 @@ def _run_profile(
     profiler = DQProfiler(ws, spark)
     summary, profiles = profiler.profile(df, columns=columns, options=profile_options)
 
+        # Extensão Selbetti: frequência dos valores
+    from dqx_task_runner.profile_extensions import calcular_frequencias
+
+    if isinstance(summary, dict):
+        colunas_permitidas = set(columns or df.columns)
+
+        colunas_para_frequencia = [
+            nome_coluna
+            for nome_coluna in summary
+            if nome_coluna in colunas_permitidas
+            and isinstance(summary[nome_coluna], dict)
+            and nome_coluna in {
+                "COD_ESTADO",
+                "DES_SEXO_CLIENTE",
+                "NOM_CIDADE",
+            }
+        ][:3]
+
+        for nome_coluna in colunas_para_frequencia:
+            summary[nome_coluna]["top_values"] = calcular_frequencias(
+                df,
+                nome_coluna,
+                limite=5,
+            )
+
+
+
     generator = DQGenerator(ws, spark)
     rules = generator.generate_dq_rules(profiles)
 
