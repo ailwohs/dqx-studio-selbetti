@@ -458,18 +458,21 @@ def _run_profile(
     if isinstance(summary, dict):
         colunas_permitidas = set(columns or df.columns)
 
-        colunas_para_frequencia = [
-            nome_coluna
-            for nome_coluna in summary
-            if nome_coluna in colunas_permitidas
-            and isinstance(summary[nome_coluna], dict)
-            and nome_coluna in {
-                "COD_ESTADO",
-                "DES_SEXO_CLIENTE",
-                "NOM_CIDADE",
-            }
-        ][:3]
+        colunas_autorizadas = {
+            "COD_ESTADO",
+            "DES_SEXO_CLIENTE",
+            "NOM_CIDADE",
+        }
 
+        colunas_para_frequencia = [
+            field.name
+            for field in df.schema.fields
+            if field.dataType.typeName() == "string"
+            and field.name in colunas_autorizadas
+            and field.name in colunas_permitidas
+            and field.name in summary
+            and isinstance(summary[field.name], dict)
+        ][:3]
         for nome_coluna in colunas_para_frequencia:
             summary[nome_coluna]["top_values"] = calcular_frequencias(
                 df,
