@@ -449,10 +449,38 @@ def _run_profile(
     # ``view_service.build_sample_select``.
     rows_profiled = df.count()
 
-    profiler = DQProfiler(ws, spark)
-    summary, profiles = profiler.profile(df, columns=columns, options=profile_options)
 
-        # Extensão Selbetti: frequência dos valores
+    
+    # Detector semântico personalizado da Selbetti
+    from dqx_task_runner.semantic_detectors import criar_registro_semantico
+
+    profiler = DQProfiler(
+        ws,
+        spark,
+        semantic_registry=criar_registro_semantico(),
+    )
+
+    summary, profiles = profiler.profile(
+        df,
+        columns=columns,
+        options=profile_options,
+    )
+
+    # Extensão Selbetti: persistência das classificações semânticas
+    if isinstance(summary, dict):
+        for profile in profiles or []:
+            coluna = profile.column
+            tipo_semantico = profile.semantic_type
+
+            if not coluna or not tipo_semantico:
+                continue
+
+            metricas = summary.get(coluna)
+
+            if isinstance(metricas, dict):
+                metricas["semantic_type"] = tipo_semantico
+
+    # Extensão Selbetti: frequência dos valores (Top 5)
     from dqx_task_runner.profile_extensions import calcular_frequencias
 
     if isinstance(summary, dict):
@@ -473,6 +501,7 @@ def _run_profile(
             and field.name in summary
             and isinstance(summary[field.name], dict)
         ][:3]
+
         for nome_coluna in colunas_para_frequencia:
             summary[nome_coluna]["top_values"] = calcular_frequencias(
                 df,
@@ -480,9 +509,8 @@ def _run_profile(
                 limite=5,
             )
 
-
-
     generator = DQGenerator(ws, spark)
+
     rules = generator.generate_dq_rules(profiles)
 
     duration = round(time.time() - start, 2)

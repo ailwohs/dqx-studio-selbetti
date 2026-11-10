@@ -29,6 +29,7 @@ const HIDDEN_KEYS = new Set([
   "count_distinct",
   "count",
   "top_values",
+  "semantic_type",
 ]);
 
 function orderKeys(
@@ -40,14 +41,14 @@ function orderKeys(
       ? ["count_null", "empty_count", "min", "max", "mean", "stddev"]
       : group === "string"
         ? [
-            "count_null",
-            "empty_count",
-            "min",
-            "max",
-            "min_length",
-            "max_length",
-            "avg_length",
-          ]
+          "count_null",
+          "empty_count",
+          "min",
+          "max",
+          "min_length",
+          "max_length",
+          "avg_length",
+        ]
         : group === "timestamp"
           ? ["count_null", "empty_count", "min", "max"]
           : ["count_null", "empty_count", "min", "max"];
@@ -90,6 +91,10 @@ export function ProfileColumnExpanded({
   const { t } = useTranslation();
 
   const group = typeGroup(sparkType);
+  const semanticType = String(stats.semantic_type ?? "").trim().toLowerCase();
+  const isCpf = semanticType === "cpf";
+  const isTelefone = semanticType === "telefone";
+  const isDadoPessoal = isCpf || isTelefone;
 
   const presentKeys = Object.keys(stats).filter(
     (key) =>
@@ -134,6 +139,23 @@ export function ProfileColumnExpanded({
 
   return (
     <div className="px-4 pt-3 pb-4 pl-12">
+      {isDadoPessoal && (
+        <div className="mb-4 rounded-lg border border-green-600/40 bg-green-600/10 p-3">
+          <div className="text-xs font-semibold text-green-500">
+            Classificação semântica
+          </div>
+
+          <div className="mt-2 flex flex-wrap gap-2">
+            <span className="rounded bg-green-600/20 px-2 py-1 text-xs">
+              {isCpf ? "CPF brasileiro" : "Telefone brasileiro"}
+            </span>
+
+            <span className="rounded bg-green-600/20 px-2 py-1 text-xs">
+              Dado pessoal
+            </span>
+          </div>
+        </div>
+      )}
       {/* Estatisticas originais do DQX */}
       <h5 className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-2">
         {t("monitoredTables.profileStatisticsHeading")}
@@ -193,9 +215,9 @@ export function ProfileColumnExpanded({
                   <div className="flex items-center justify-between gap-3">
                     <span
                       className="text-xs font-medium truncate"
-                      title={item.valor ?? "Nulo"}
+                      title={isDadoPessoal ? (item.valor === null ? "Nulo" : "Valor protegido") : (item.valor ?? "Nulo")}
                     >
-                      {item.valor ?? "Nulo"}
+                      {isDadoPessoal ? (item.valor === null ? "Nulo" : "Valor protegido") : (item.valor ?? "Nulo")}
                     </span>
 
                     <span className="font-mono text-xs text-muted-foreground whitespace-nowrap">
